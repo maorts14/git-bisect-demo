@@ -77,7 +77,10 @@ jobs:
           set -o pipefail
           git bisect start "$GITHUB_SHA" "${{ needs.validate.outputs.base }}"
           git bisect run python scripts/full_test.py | tee bisect-output.txt
-          bad_sha="$(git rev-parse HEAD)"
+          # Git may leave HEAD on the final confirming midpoint rather than the
+          # offending commit. Read bisect's authoritative conclusion instead.
+          bad_sha="$(grep -E '^[0-9a-f]{40} is the first .bad. commit' bisect-output.txt | head -n 1 | cut -d ' ' -f 1)"
+          test -n "$bad_sha"
           git bisect reset
           echo "bad_sha=$bad_sha" >> "$GITHUB_OUTPUT"
       - name: Publish result
