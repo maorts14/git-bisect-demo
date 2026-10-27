@@ -14,6 +14,7 @@ jobs:
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
       base: ${{ steps.gate.outputs.base }}
+      full_result: ${{ steps.full.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,21 +36,28 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         with:
           python-version: "3.12"
-      - name: Full integration suite
+      - id: full
+        name: Full integration suite
         if: steps.gate.outputs.should_run == 'true'
+        continue-on-error: true
         run: python scripts/full_test.py
       - name: Advance last-green checkpoint
-        if: steps.gate.outputs.should_run == 'true' && success()
+        if: steps.gate.outputs.should_run == 'true' && steps.full.outcome == 'success'
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -fa ci-last-green -m "Last batch-CI green commit" "$GITHUB_SHA"
           git push origin refs/tags/ci-last-green --force
+      - name: Fail the batch after regression localization is enabled
+        if: steps.gate.outputs.should_run == 'true' && steps.full.outcome == 'failure'
+        run: exit 1
 
   localize-regression:
     name: Locate first bad squash merge
     needs: validate
     if: >-
       always() && needs.validate.outputs.should_run == 'true' &&
-      needs.validate.result == 'failure'
+      needs.validate.outputs.full_result == 'failure'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
