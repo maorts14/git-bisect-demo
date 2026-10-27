@@ -1,7 +1,7 @@
 {
   "features": {
     "welcome_banner": true,
-    "broken_feature": true,
+    "broken_feature": false,
     "agent_01_feature": true,
     "agent_02_feature": true,
     "agent_03_feature": true,
