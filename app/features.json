@@ -1,5 +1,6 @@
 {
   "features": {
-    "welcome_banner": true
+    "welcome_banner": true,
+    "agent_01_feature": true
   }
 }
