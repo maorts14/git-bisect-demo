@@ -1,0 +1,81 @@
+name: Batch CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      base: ${{ steps.gate.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: gate
+        name: Decide whether this batch needs full CI
+        shell: bash
+        run: |
+          base="$(git rev-parse ci-last-green)"
+          count="$(git rev-list --count "$base..$GITHUB_SHA")"
+          should_run=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$count" -ge 100 ]; then
+            should_run=true
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "Commits since last green checkpoint: $count"
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.should_run == 'true'
+        with:
+          python-version: "3.12"
+      - name: Full integration suite
+        if: steps.gate.outputs.should_run == 'true'
+        run: python scripts/full_test.py
+      - name: Advance last-green checkpoint
+        if: steps.gate.outputs.should_run == 'true' && success()
+        run: |
+          git tag -fa ci-last-green -m "Last batch-CI green commit" "$GITHUB_SHA"
+          git push origin refs/tags/ci-last-green --force
+
+  localize-regression:
+    name: Locate first bad squash merge
+    needs: validate
+    if: >-
+      always() && needs.validate.outputs.should_run == 'true' &&
+      needs.validate.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Binary-search the failed batch
+        id: bisect
+        shell: bash
+        run: |
+          set -o pipefail
+          git bisect start "$GITHUB_SHA" "${{ needs.validate.outputs.base }}"
+          git bisect run python scripts/full_test.py | tee bisect-output.txt
+          bad_sha="$(git rev-parse HEAD)"
+          git bisect reset
+          echo "bad_sha=$bad_sha" >> "$GITHUB_OUTPUT"
+      - name: Publish result
+        shell: bash
+        run: |
+          {
+            echo "## Batch CI regression localized"
+            echo
+            echo "First bad squash merge: [\`${{ steps.bisect.outputs.bad_sha }}\`](https://github.com/${{ github.repository }}/commit/${{ steps.bisect.outputs.bad_sha }})"
+            echo
+            echo "Tested range: \`${{ needs.validate.outputs.base }}..${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
