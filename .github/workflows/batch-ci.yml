@@ -26,7 +26,10 @@ jobs:
           base="$(git rev-parse ci-last-green)"
           count="$(git rev-list --count "$base..$GITHUB_SHA")"
           should_run=false
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$count" -ge 100 ]; then
+          # A failed batch intentionally leaves ci-last-green unchanged. Run at
+          # the exact boundary so later merges do not repeatedly start the same
+          # expensive investigation; use workflow_dispatch to retry on demand.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$count" -eq 100 ]; then
             should_run=true
           fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
